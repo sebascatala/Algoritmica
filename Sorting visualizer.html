@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sorting visualizer</title>
+<style>
+:root{--bg:#f5f7fa;--ink:#17202b;--mute:#5d6b7c;--line:#d9e0e8;--bar:#9fb0c4;--cmp:#e3a008;--wr:#2f6feb;--ok:#2a9d6b;--panel:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12171d;--ink:#e8edf3;--mute:#93a1b2;--line:#2a343f;--bar:#4a5b6e;--cmp:#f0b429;--wr:#5b9bff;--ok:#44c08a;--panel:#1a2129}}
+:root[data-theme="dark"]{--bg:#12171d;--ink:#e8edf3;--mute:#93a1b2;--line:#2a343f;--bar:#4a5b6e;--cmp:#f0b429;--wr:#5b9bff;--ok:#44c08a;--panel:#1a2129}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 18px 40px}
+h1{font-size:1.6rem;margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+.sub{color:var(--mute);margin:0 0 20px;max-width:60ch}
+.controls{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:end;margin-bottom:14px}
+label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--mute)}
+select,input[type=range],button{font:inherit}
+select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+input[type=range]{width:140px;accent-color:var(--wr)}
+button{padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
+button.primary{background:var(--wr);border-color:var(--wr);color:#fff;font-weight:600;min-width:84px}
+button:hover{border-color:var(--wr)}
+:focus-visible{outline:2px solid var(--wr);outline-offset:2px}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
+canvas{display:block;width:100%;height:320px}
+.stats{display:flex;flex-wrap:wrap;gap:8px 28px;margin:14px 0 6px}
+.stat b{font-size:1.35rem;font-variant-numeric:tabular-nums;display:block;line-height:1.2}
+.stat span{font-size:.85rem;color:var(--mute)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.85rem;color:var(--mute);margin:6px 0 14px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:baseline}
+#info{max-width:70ch;color:var(--ink)}
+#info small{color:var(--mute);display:block;margin-top:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Sorting visualizer</h1>
+<p class="sub">Pick an algorithm, then watch it sort step by step. Counters show how much work it does.</p>
+
+<div class="controls">
+  <label>Algorithm
+    <select id="algo">
+      <option value="bubble">Bubble sort</option>
+      <option value="insertion">Insertion sort</option>
+      <option value="selection">Selection sort</option>
+      <option value="merge">Merge sort</option>
+      <option value="quick">Quick sort</option>
+    </select>
+  </label>
+  <label>Items: <span id="nv">40</span>
+    <input id="size" type="range" min="8" max="120" value="40">
+  </label>
+  <label>Speed
+    <input id="speed" type="range" min="1" max="100" value="40">
+  </label>
+  <button id="play" class="primary">Play</button>
+  <button id="step">Step</button>
+  <button id="shuffle">Shuffle</button>
+</div>
+
+<div class="stage"><canvas id="cv" role="img" aria-label="Bar chart of the array being sorted"></canvas></div>
+
+<div class="stats">
+  <div class="stat"><b id="sc">0</b><span>Comparisons</span></div>
+  <div class="stat"><b id="sw">0</b><span>Writes</span></div>
+  <div class="stat"><b id="ss">Ready</b><span>Status</span></div>
+</div>
+<div class="legend">
+  <span><i style="background:var(--bar)"></i>Unsorted</span>
+  <span><i style="background:var(--cmp)"></i>Being compared</span>
+  <span><i style="background:var(--wr)"></i>Just written</span>
+  <span><i style="background:var(--ok)"></i>Sorted</span>
+</div>
+<p id="info"></p>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const INFO={
+bubble:["Bubble sort","Swaps neighbors that are out of order, so large values drift to the end.","Time O(n²), space O(1)"],
+insertion:["Insertion sort","Grows a sorted prefix by sliding each new item left into place.","Time O(n²), fast on nearly sorted data"],
+selection:["Selection sort","Finds the smallest remaining item and moves it to the front.","Time O(n²), at most n swaps"],
+merge:["Merge sort","Splits the array in halves, sorts each, then merges them.","Time O(n log n), extra space O(n)"],
+quick:["Quick sort","Partitions around a pivot, then sorts each side.","Time O(n log n) on average, O(n²) worst case"]
+};
+let a=[],gen=null,timer=null,acc=0,cmp=0,wr=0,hi=[],hw=[],sorted=false;
+
+function* bubble(){const n=a.length;for(let i=0;i<n-1;i++)for(let j=0;j<n-1-i;j++){yield['c',j,j+1];if(a[j]>a[j+1]){[a[j],a[j+1]]=[a[j+1],a[j]];yield['w',j,j+1]}}}
+function* insertion(){for(let i=1;i<a.length;i++){for(let j=i;j>0;j--){yield['c',j-1,j];if(a[j-1]>a[j]){[a[j-1],a[j]]=[a[j],a[j-1]];yield['w',j-1,j]}else break}}}
+function* selection(){const n=a.length;for(let i=0;i<n-1;i++){let m=i;for(let j=i+1;j<n;j++){yield['c',m,j];if(a[j]<a[m])m=j}if(m!==i){[a[i],a[m]]=[a[m],a[i]];yield['w',i,m]}}}
+function* merge(lo=0,hiI=a.length-1){if(hiI<=lo)return;const m=(lo+hiI)>>1;yield*merge(lo,m);yield*merge(m+1,hiI);
+ const L=a.slice(lo,m+1),R=a.slice(m+1,hiI+1);let i=0,j=0,k=lo;
+ while(i<L.length&&j<R.length){yield['c',lo+i,m+1+j];a[k]=L[i]<=R[j]?L[i++]:R[j++];yield['w',k,k];k++}
+ while(i<L.length){a[k]=L[i++];yield['w',k,k];k++}
+ while(j<R.length){a[k]=R[j++];yield['w',k,k];k++}}
+function* quick(lo=0,hiI=a.length-1){if(lo>=hiI)return;const p=a[hiI];let i=lo;
+ for(let j=lo;j<hiI;j++){yield['c',j,hiI];if(a[j]<p){[a[i],a[j]]=[a[j],a[i]];yield['w',i,j];i++}}
+ [a[i],a[hiI]]=[a[hiI],a[i]];yield['w',i,hiI];yield*quick(lo,i-1);yield*quick(i+1,hiI)}
+const ALGOS={bubble,insertion,selection,merge,quick};
+
+function shuffle(){stop();const n=+$('size').value;a=Array.from({length:n},(_,i)=>i+1);
+ for(let i=n-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+ reset()}
+function reset(){stop();gen=ALGOS[$('algo').value]();cmp=wr=0;hi=[];hw=[];sorted=false;
+ const [t,d,c]=INFO[$('algo').value];$('info').innerHTML=`<b>${t}.</b> ${d}<small>${c}</small>`;
+ $('ss').textContent='Ready';update();draw()}
+function update(){$('sc').textContent=cmp;$('sw').textContent=wr}
+function advance(){
+ const r=gen.next();
+ if(r.done){sorted=true;hi=[];hw=[];$('ss').textContent='Sorted';stop();update();draw();return false}
+ const [k,i,j]=r.value;
+ if(k==='c'){cmp++;hi=[i,j];hw=[]}else{wr++;hw=[i,j];hi=[]}
+ return true}
+function tick(){acc+=$('speed').value/10;let go=true;
+ while(acc>=1&&go){acc--;go=advance()}
+ if(go)$('ss').textContent='Sorting';update();draw()}
+function play(){if(sorted){return}if(timer){stop();return}acc=1;timer=setInterval(tick,16);$('play').textContent='Pause'}
+function stop(){clearInterval(timer);timer=null;$('play').textContent='Play'}
+function stepOnce(){if(sorted)return;stop();if(advance())$('ss').textContent='Paused';update();draw()}
+
+function draw(){
+ const cv=$('cv'),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+ if(cv.width!==Math.round(w*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+ const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);
+ const cs=getComputedStyle(document.documentElement),n=a.length,gap=n>70?1:2,bw=(w-gap*(n-1))/n,max=Math.max(...a);
+ a.forEach((v,i)=>{x.fillStyle=sorted?cs.getPropertyValue('--ok'):hw.includes(i)?cs.getPropertyValue('--wr'):hi.includes(i)?cs.getPropertyValue('--cmp'):cs.getPropertyValue('--bar');
+  const bh=Math.max(2,v/max*(h-4));x.fillRect(i*(bw+gap),h-bh,bw,bh)})}
+
+$('algo').onchange=reset;
+$('size').oninput=()=>{$('nv').textContent=$('size').value;shuffle()};
+$('play').onclick=play;$('step').onclick=stepOnce;$('shuffle').onclick=shuffle;
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&!['SELECT','INPUT','BUTTON'].includes(document.activeElement.tagName)){e.preventDefault();play()}});
+window.addEventListener('resize',draw);
+shuffle();
+</script>
+</body>
+</html>
